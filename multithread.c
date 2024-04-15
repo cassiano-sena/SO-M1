@@ -26,7 +26,7 @@ threads, pipe ou memória compartilhada.
 () revisar versao windows
 () fazer struct esteira
 () criar um metodo na struct esteira (que possui um intervalo) para atualizar o sensor em determinado intervalo
-
+() fazer o tratamento de spinlock
 */
 
 // implementação multithread em linux
@@ -43,6 +43,7 @@ void atualiza_sensor_esteira1();
 void atualiza_sensor_esteira2();
 void atualiza_display();
 
+// structs incompletas
 struct Esteira{
     int id;
 };
