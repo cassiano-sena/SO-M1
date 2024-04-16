@@ -1,121 +1,231 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <string.h>
+#include <sys/mman.h>
+
+#define PIPE_NAME_ESTEIRA1 "/tmp/esteira1_pipe"
+#define PIPE_NAME_ESTEIRA2 "/tmp/esteira2_pipe"
+#define PIPE_NAME_DISPLAY "/tmp/display_pipe"
 
 double peso_total_esteira1 = 0;
 double peso_total_esteira2 = 0;
-double peso_total_combinado = 0;
-int itens_lidos = 0;
+double *peso_total_combinado;
+int display_threshold = 10; // total de itens lidos para atualizar o display
+int *itens_lidos;
 int atualizacoes_display = 0;
+int stop_threshold = 50; // Limite de itens lidos para encerrar
 
-void atualiza_sensor_esteira1(int fd);
-void atualiza_sensor_esteira2(int fd);
-void atualiza_display(int fd);
+void atualiza_sensor_esteira1();
+void atualiza_sensor_esteira2();
+void atualiza_display();
 
 int main()
 {
-    int fd1, fd2, fd3;
-    pid_t pid;
+    setbuf(stdout, NULL);
 
-    // Criando os pipes nomeados
-    mkfifo("/tmp/pipe1", 0666);
-    mkfifo("/tmp/pipe2", 0666);
-    mkfifo("/tmp/pipe3", 0666);
+    struct timespec start, end;
+    double tempo_execucao;
 
-    // Criando os processos filhos
-    pid = fork();
+    clock_gettime(CLOCK_MONOTONIC, &start);
 
-    if (pid < 0) {
-        fprintf(stderr, "Falha ao criar o processo filho\n");
-        return 1;
-    } else if (pid > 0) { // Processo pai
-        fd1 = open("/tmp/pipe1", O_WRONLY);
-        fd2 = open("/tmp/pipe2", O_WRONLY);
-        fd3 = open("/tmp/pipe3", O_RDONLY);
+    mkfifo(PIPE_NAME_ESTEIRA1, 0666);
+    mkfifo(PIPE_NAME_ESTEIRA2, 0666);
+    mkfifo(PIPE_NAME_DISPLAY, 0666);
 
-        // Fechando os lados de leitura dos pipes nomeados
-        close(fd3);
+    // utilizei memoria compartilhada :(
+    // memoria compartilhada para obter peso combinado e itens lidos
+    int shm_fd = shm_open("/shared_memory", O_CREAT | O_RDWR, 0666);
+    ftruncate(shm_fd, sizeof(double) + sizeof(int));
+    peso_total_combinado = mmap(0, sizeof(double), PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    itens_lidos = (int *)(peso_total_combinado + 1);
+    *peso_total_combinado = 0;
+    *itens_lidos = 0;
 
-        atualiza_sensor_esteira1(fd1);
-        atualiza_sensor_esteira2(fd2);
-
-        // Fechando os pipes nomeados
-        close(fd1);
-        close(fd2);
-        unlink("/tmp/pipe1");
-        unlink("/tmp/pipe2");
-    } else { // Processo filho
-        fd3 = open("/tmp/pipe3", O_WRONLY);
-        atualiza_display(fd3);
-        close(fd3);
+    pid_t pid_esteira1 = fork();
+    if (pid_esteira1 == 0)
+    {
+        atualiza_sensor_esteira1();
+        exit(0);
     }
+
+    pid_t pid_esteira2 = fork();
+    if (pid_esteira2 == 0)
+    {
+        atualiza_sensor_esteira2();
+        exit(0);
+    }
+
+    pid_t pid_display = fork();
+    if (pid_display == 0)
+    {
+        atualiza_display();
+        exit(0);
+    }
+
+    waitpid(pid_esteira1, NULL, 0);
+    waitpid(pid_esteira2, NULL, 0);
+    waitpid(pid_display, NULL, 0);
+
+    unlink(PIPE_NAME_ESTEIRA1);
+    unlink(PIPE_NAME_ESTEIRA2);
+    unlink(PIPE_NAME_DISPLAY);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    tempo_execucao = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    printf("\nTempo de execução total: %.6f segundos\n", tempo_execucao);
+
+    printf("Taxa de atualização do peso total: %.2f atualizações/segundo\n", (float)(*itens_lidos) / tempo_execucao);
+    printf("Tempo médio de atualização do display: %.6f segundos\n", tempo_execucao / atualizacoes_display);
+
+    shm_unlink("/shared_memory");
+    munmap(peso_total_combinado, sizeof(double));
+    munmap(itens_lidos, sizeof(int));
 
     return 0;
 }
 
-// esteira1 possui itens com peso maior ou igual a 5kg, – passa 1 item a cada 2 segundos pelo sensor.
-void atualiza_sensor_esteira1(int fd)
+void atualiza_sensor_esteira1()
 {
+    // checagem de saúde do pipe pra esteira1
+    int fd;
+    fd = open(PIPE_NAME_ESTEIRA1, O_WRONLY);
+    if (fd == -1)
+    {
+        perror("Failed to open pipe for esteira1");
+        exit(1);
+    }
+
     double lido = 0;
     int peso = 5;
-    int interval = 2;
-    while (1)
+    int interval = 2000000; // 2 segundos
+    char buffer[1024];
+
+    // enquanto menor que condição de parada, simular esteira1
+    while (*itens_lidos < stop_threshold)
     {
+        printf("\nEsteira 1 Saída - Lido 1: %d", (int)lido);
+        fflush(stdout);
+        sprintf(buffer, "%.2lf", peso_total_esteira1);
+
         peso_total_esteira1 += peso;
-        peso_total_combinado += peso;
-        itens_lidos++;
-        lido++;
+        *peso_total_combinado += peso;
+        (*itens_lidos)++;
 
-        if (itens_lidos % 50 == 0) {
-            // Enviando os dados pelo pipe
-            write(fd, &peso_total_esteira1, sizeof(double));
-            write(fd, &peso_total_esteira2, sizeof(double));
-            write(fd, &peso_total_combinado, sizeof(double));
+        if (write(fd, buffer, strlen(buffer) + 1) == -1)
+        {
+            perror("Failed to write to pipe for esteira1");
+            close(fd);
+            exit(1);
         }
-
-        sleep(interval);
+        printf("\nEsteira 1 Saída - Lido 1: %d", (int)lido);
+        fflush(stdout);
+        usleep(interval);
+        lido++;
     }
+
+    close(fd);
 }
 
-// esteira2 possui itens com peso maior ou igual a 5kg, – passa 1 item a cada 1 segundos pelo sensor.
-void atualiza_sensor_esteira2(int fd)
+void atualiza_sensor_esteira2()
 {
+    // checagem de saúde do pipe pra esteira2
+    int fd;
+    fd = open(PIPE_NAME_ESTEIRA2, O_WRONLY);
+    if (fd == -1)
+    {
+        perror("Failed to open pipe for esteira2");
+        exit(1);
+    }
+
     double lido = 0;
     int peso = 2;
-    int interval = 1;
-    while (1)
+    int interval = 1000000; // 1 segundo
+    char buffer[1024];
+
+    // enquanto menor que condição de parada, simular esteira2
+    while (*itens_lidos < stop_threshold)
     {
+        sprintf(buffer, "%.2lf", peso_total_esteira2);
+
+        printf("\nEsteira 2 Entrada - Lido 1: %d", (int)lido);
+        fflush(stdout);
         peso_total_esteira2 += peso;
-        peso_total_combinado += peso;
-        itens_lidos++;
-        lido++;
+        *peso_total_combinado += peso;
+        (*itens_lidos)++;
 
-        if (itens_lidos % 50 == 0) {
-            // Enviando os dados pelo pipe
-            write(fd, &peso_total_esteira1, sizeof(double));
-            write(fd, &peso_total_esteira2, sizeof(double));
-            write(fd, &peso_total_combinado, sizeof(double));
+        if (write(fd, buffer, strlen(buffer) + 1) == -1)
+        {
+            perror("Failed to write to pipe for esteira2");
+            close(fd);
+            exit(1);
         }
-
-        sleep(interval);
+        printf("\nEsteira 2 Saída - Lido 1: %d", (int)lido);
+        fflush(stdout);
+        usleep(interval);
+        lido++;
     }
+
+    close(fd);
 }
 
-// atualizar peso total a cada 500 itens
-void atualiza_display(int fd)
+void atualiza_display()
 {
-    double peso_esteira1, peso_esteira2, peso_combinado;
-    while (1)
+    int fd1 = open(PIPE_NAME_ESTEIRA1, O_RDONLY);
+    if (fd1 == -1)
     {
-        // Lendo os dados dos pipes
-        read(fd, &peso_esteira1, sizeof(double));
-        read(fd, &peso_esteira2, sizeof(double));
-        read(fd, &peso_combinado, sizeof(double));
-
-        printf("\nPeso total Esteira 1: %.2lf", peso_esteira1);
-        printf("\nPeso total Esteira 2: %.2lf", peso_esteira2);
-        printf("\nPeso total combinado: %.2lf", peso_combinado);
+        perror("Failed to open pipe for esteira1 in display");
+        exit(1);
     }
+
+    int fd2 = open(PIPE_NAME_ESTEIRA2, O_RDONLY);
+    if (fd2 == -1)
+    {
+        perror("Failed to open pipe for esteira2 in display");
+        exit(1);
+    }
+
+    char buffer1[1024];
+    char buffer2[1024];
+
+    while (*itens_lidos < stop_threshold)
+    {
+        if (read(fd1, buffer1, sizeof(buffer1)) == -1)
+        {
+            perror("Failed to read from pipe for esteira1 in display");
+            close(fd1);
+            exit(1);
+        }
+
+        if (read(fd2, buffer2, sizeof(buffer2)) == -1)
+        {
+            perror("Failed to read from pipe for esteira2 in display");
+            close(fd2);
+            exit(1);
+        }
+
+        fflush(stdout);
+        if (*itens_lidos % display_threshold == 0)
+        {
+            // printf("\n");
+            printf("\nItens Lidos: %d", *itens_lidos);
+            printf("\nPeso total Esteira 1: %.2lf", atof(buffer1));
+            printf("\nPeso total Esteira 2: %.2lf", atof(buffer2));
+            printf("\nPeso total combinado: %.2lf", *peso_total_combinado);
+            printf("\n");
+            atualizacoes_display++;
+            fflush(stdout);
+        }
+
+        usleep(100000);
+    }
+
+    close(fd1);
+    close(fd2);
 }
