@@ -1,3 +1,6 @@
+// implementação pipe em linux
+// gcc -o pipe pipe.c -lrt
+// lrt pra memoria compartilhada
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -17,19 +20,17 @@
 double peso_total_esteira1 = 0;
 double peso_total_esteira2 = 0;
 double *peso_total_combinado;
-int display_threshold = 10; // total de itens lidos para atualizar o display
+int display_threshold = 10; // total de itens lidos para atualizar o display (default 500)
 int *itens_lidos;
 int atualizacoes_display = 0;
-int stop_threshold = 50; // Limite de itens lidos para encerrar
+int stop_threshold = 50; // Limite de itens lidos para encerrar (default 1000)
 
 void atualiza_sensor_esteira1();
 void atualiza_sensor_esteira2();
 void atualiza_display();
 
-int main()
-{
-    setbuf(stdout, NULL);
-
+int main(){
+    setbuf(stdout, NULL); // pra ficar melhor impresso no console
     struct timespec start, end;
     double tempo_execucao;
 
@@ -49,22 +50,19 @@ int main()
     *itens_lidos = 0;
 
     pid_t pid_esteira1 = fork();
-    if (pid_esteira1 == 0)
-    {
+    if (pid_esteira1 == 0){
         atualiza_sensor_esteira1();
         exit(0);
     }
 
     pid_t pid_esteira2 = fork();
-    if (pid_esteira2 == 0)
-    {
+    if (pid_esteira2 == 0){
         atualiza_sensor_esteira2();
         exit(0);
     }
 
     pid_t pid_display = fork();
-    if (pid_display == 0)
-    {
+    if (pid_display == 0){
         atualiza_display();
         exit(0);
     }
@@ -91,14 +89,12 @@ int main()
     return 0;
 }
 
-void atualiza_sensor_esteira1()
-{
+void atualiza_sensor_esteira1(){
     // checagem de saúde do pipe pra esteira1
     int fd;
     fd = open(PIPE_NAME_ESTEIRA1, O_WRONLY);
-    if (fd == -1)
-    {
-        perror("Failed to open pipe for esteira1");
+    if (fd == -1){
+        perror("Falha ao ler pipe de esteira1");
         exit(1);
     }
 
@@ -108,8 +104,7 @@ void atualiza_sensor_esteira1()
     char buffer[1024];
 
     // enquanto menor que condição de parada, simular esteira1
-    while (*itens_lidos < stop_threshold)
-    {
+    while (*itens_lidos < stop_threshold){
         printf("\nEsteira 1 Saída - Lido 1: %d", (int)lido);
         fflush(stdout);
         sprintf(buffer, "%.2lf", peso_total_esteira1);
@@ -118,9 +113,8 @@ void atualiza_sensor_esteira1()
         *peso_total_combinado += peso;
         (*itens_lidos)++;
 
-        if (write(fd, buffer, strlen(buffer) + 1) == -1)
-        {
-            perror("Failed to write to pipe for esteira1");
+        if (write(fd, buffer, strlen(buffer) + 1) == -1){
+            perror("Falha ao escrever no pipe de esteira1");
             close(fd);
             exit(1);
         }
@@ -129,18 +123,15 @@ void atualiza_sensor_esteira1()
         usleep(interval);
         lido++;
     }
-
     close(fd);
 }
 
-void atualiza_sensor_esteira2()
-{
+void atualiza_sensor_esteira2(){
     // checagem de saúde do pipe pra esteira2
     int fd;
     fd = open(PIPE_NAME_ESTEIRA2, O_WRONLY);
-    if (fd == -1)
-    {
-        perror("Failed to open pipe for esteira2");
+    if (fd == -1){
+        perror("Falha ao ler pipe de esteira2");
         exit(1);
     }
 
@@ -150,8 +141,7 @@ void atualiza_sensor_esteira2()
     char buffer[1024];
 
     // enquanto menor que condição de parada, simular esteira2
-    while (*itens_lidos < stop_threshold)
-    {
+    while (*itens_lidos < stop_threshold){
         sprintf(buffer, "%.2lf", peso_total_esteira2);
 
         printf("\nEsteira 2 Entrada - Lido 1: %d", (int)lido);
@@ -160,9 +150,8 @@ void atualiza_sensor_esteira2()
         *peso_total_combinado += peso;
         (*itens_lidos)++;
 
-        if (write(fd, buffer, strlen(buffer) + 1) == -1)
-        {
-            perror("Failed to write to pipe for esteira2");
+        if (write(fd, buffer, strlen(buffer) + 1) == -1){
+            perror("Falha ao escrever no pipe de esteira2");
             close(fd);
             exit(1);
         }
@@ -171,48 +160,40 @@ void atualiza_sensor_esteira2()
         usleep(interval);
         lido++;
     }
-
     close(fd);
 }
 
-void atualiza_display()
-{
+void atualiza_display(){
     int fd1 = open(PIPE_NAME_ESTEIRA1, O_RDONLY);
-    if (fd1 == -1)
-    {
-        perror("Failed to open pipe for esteira1 in display");
+    if (fd1 == -1){
+        perror("Falha ao ler pipe de esteira1 in display");
         exit(1);
     }
 
     int fd2 = open(PIPE_NAME_ESTEIRA2, O_RDONLY);
-    if (fd2 == -1)
-    {
-        perror("Failed to open pipe for esteira2 in display");
+    if (fd2 == -1){
+        perror("Falha ao ler pipe de esteira2 in display");
         exit(1);
     }
 
     char buffer1[1024];
     char buffer2[1024];
 
-    while (*itens_lidos < stop_threshold)
-    {
-        if (read(fd1, buffer1, sizeof(buffer1)) == -1)
-        {
+    while (*itens_lidos < stop_threshold){
+        if (read(fd1, buffer1, sizeof(buffer1)) == -1){
             perror("Failed to read from pipe for esteira1 in display");
             close(fd1);
             exit(1);
         }
 
-        if (read(fd2, buffer2, sizeof(buffer2)) == -1)
-        {
+        if (read(fd2, buffer2, sizeof(buffer2)) == -1){
             perror("Failed to read from pipe for esteira2 in display");
             close(fd2);
             exit(1);
         }
 
         fflush(stdout);
-        if (*itens_lidos % display_threshold == 0)
-        {
+        if (*itens_lidos % display_threshold == 0){
             // printf("\n");
             printf("\nItens Lidos: %d", *itens_lidos);
             printf("\nPeso total Esteira 1: %.2lf", atof(buffer1));
@@ -225,7 +206,6 @@ void atualiza_display()
 
         usleep(100000);
     }
-
     close(fd1);
     close(fd2);
 }
