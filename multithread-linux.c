@@ -112,7 +112,8 @@ void atualiza_display()
 
         if (itens_lidos % threshold == 0)
         {
-            printf("\n");
+            //printf("\n");
+            printf("\nItens Lidos: %d", itens_lidos);
             printf("\nPeso total Esteira 1: %.2lf", peso_total_esteira1);
             printf("\nPeso total Esteira 2: %.2lf", peso_total_esteira2);
             printf("\nPeso total combinado: %.2lf", peso_total_combinado);
