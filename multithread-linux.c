@@ -1,32 +1,3 @@
-/*
-Uma Indústria de Alimentos de Santa Catarina chamada FoodSec S.A. possui a tarefa de escanear
-alimentos por meio de câmeras e verificar se os mesmos estão corretos. Os alimentos podem passar
-por uma das duas esteiras disponíveis. As duas esteiras são controladas por um por um único
-computador centralizado. Esse computador recebe dados de um sensor em cada uma das esteiras que
-captura a contagem de itens que são identificados como seguros. A contagem é exibida em um display
-perto das esteiras (todos os displays são controlados pela mesma função, é apenas uma replicação)
-
-A empresa está avaliando a viabilidade de implementação nos Sistemas Operacionais Windows e Linux
-(qualquer distro) e também em duas formas de IPC. Com isso, você deve implementar duas versões
-da solução nos dois sistemas operacionais e comparar qual é a que apresenta o melhor desempenho
-quanto ao tempo de computação (tempo de processamento). A primeira solução deve usar IPC do tipo
-pipe (de preferência nomeado), já a segunda solução deve ser implementada via multithread (ou multithread, como queira descrever). Logo, deve ser implementado as duas soluções para Windows e as
-duas para Linux. Você poderá usar o Codespace ou Cocalc, por exemplo, para implementar a versão
-em Linux. Para Windows, você pode usar máquinas virtuais também.
-
-Os códigos disponibilizados pelo professor (de teste e exercícios) podem ser usados para o
-desenvolvimento do trabalho (na verdade, é extremamente recomendado). A avaliação do tempo deve
-ser entre a execução da contagem e na comunicação, sendo recomendado desconsiderar a criação de
-threads, pipe ou memória compartilhada.
-
-() revisar se atende ao que foi pedido
-() revisar formatacao
-() revisar funcoes
-() revisar versao linux
-() revisar versao windows
-() fazer o tratamento de spinlock
-*/
-
 // implementação multithread
 #include <pthread.h>
 #include <stdio.h>
@@ -46,8 +17,8 @@ Esteira esteira2 = {0, 0};
 
 int itens_lidos = 0;
 int atualizacoes_display = 0;
-int threshold = 10;      // total de itens lidos para atualizar o display
-int stop_threshold = 50; // Threshold para parar o programa
+int threshold = 500;       // total de itens lidos para atualizar o display
+int stop_threshold = 1000; // Threshold para parar o programa
 
 void atualiza_sensor_esteira1();
 void atualiza_sensor_esteira2();

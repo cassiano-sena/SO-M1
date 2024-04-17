@@ -1,135 +1,134 @@
+// implementação multithread
+#include <pthread.h>
 #include <stdio.h>
-#include <windows.h>
+#include <unistd.h>
 #include <time.h>
 
-HANDLE hMutex; // Mutex para exclusão mútua
-double peso_total_esteira1 = 0;
-double peso_total_esteira2 = 0;
-double peso_total_combinado = 0;
+pthread_mutex_t exclusao_mutua = PTHREAD_MUTEX_INITIALIZER; // LOCK da seção crítica
+
+typedef struct
+{
+    int quantidade;
+    int peso_total;
+} Esteira;
+
+Esteira esteira1 = {0, 0};
+Esteira esteira2 = {0, 0};
+
 int itens_lidos = 0;
 int atualizacoes_display = 0;
-int threshold = 10;      // total de itens lidos para atualizar o display
-int stop_threshold = 50; // Limite de itens lidos para encerrar
+int threshold = 500;       // total de itens lidos para atualizar o display
+int stop_threshold = 1000; // Threshold para parar o programa
 
-DWORD WINAPI atualiza_sensor_esteira1(LPVOID lpParam);
-DWORD WINAPI atualiza_sensor_esteira2(LPVOID lpParam);
-DWORD WINAPI atualiza_display(LPVOID lpParam);
+void atualiza_sensor_esteira1();
+void atualiza_sensor_esteira2();
+void atualiza_display();
+void stop_program();
 
 int main()
 {
+    pthread_t t1, t2, t3;
     struct timespec start, end;
     double tempo_execucao;
 
-    hMutex = CreateMutex(NULL, FALSE, NULL); // Criar o Mutex
-    if (hMutex == NULL)
+    if (pthread_mutex_init(&exclusao_mutua, NULL) != 0)
     {
-        printf("Falha na criação do mutex\n");
+        printf("\nMutex initialization failed\n");
         return 1;
     }
 
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    // Criar as threads
-    HANDLE hThreadEsteira1 = CreateThread(NULL, 0, atualiza_sensor_esteira1, NULL, 0, NULL);
-    HANDLE hThreadEsteira2 = CreateThread(NULL, 0, atualiza_sensor_esteira2, NULL, 0, NULL);
-    HANDLE hThreadDisplay = CreateThread(NULL, 0, atualiza_display, NULL, 0, NULL);
+    pthread_create(&t1, NULL, (void *)atualiza_sensor_esteira1, NULL);
+    pthread_create(&t2, NULL, (void *)atualiza_sensor_esteira2, NULL);
+    pthread_create(&t3, NULL, (void *)atualiza_display, NULL);
 
-    // Esperar até que a condição de encerramento seja atendida
+    // observador que detecta quando o numero de itens passou do limite estabelecido para encerramento
     while (itens_lidos < stop_threshold)
     {
-        Sleep(1000); // Esperar 1 segundo
+        sleep(1);
     }
 
-    // Aguardar o término das threads
-    WaitForSingleObject(hThreadEsteira1, INFINITE);
-    WaitForSingleObject(hThreadEsteira2, INFINITE);
-    WaitForSingleObject(hThreadDisplay, INFINITE);
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+    pthread_join(t3, NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     tempo_execucao = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
-    printf("\nTempo de execução total: %.6f segundos\n", tempo_execucao);
+    printf("\nTempo de execucao total: %.6f segundos\n", tempo_execucao);
+    printf("Taxa de atualizacao do peso total: %.2f atualizacoes/segundo\n", itens_lidos / tempo_execucao);
+    printf("Tempo medio de atualizacao do display: %.6f segundos\n", tempo_execucao / atualizacoes_display);
 
-    printf("Taxa de atualização do peso total: %.2f atualizações/segundo\n", (float)itens_lidos / tempo_execucao);
-    printf("Tempo médio de atualização do display: %.6f segundos\n", tempo_execucao / atualizacoes_display);
-
-    // Fechar o Mutex
-    CloseHandle(hMutex);
+    pthread_mutex_destroy(&exclusao_mutua);
 
     return 0;
 }
 
-// Função para atualizar o sensor da esteira 1
-DWORD WINAPI atualiza_sensor_esteira1(LPVOID lpParam)
+void atualiza_sensor_esteira1()
 {
     double lido = 0;
     int peso = 5;
-    int interval = 2000; // 2 segundos
-
+    int interval = 2; // 2 segundos
     while (itens_lidos < stop_threshold)
     {
-        WaitForSingleObject(hMutex, INFINITE); // Aguardar o Mutex
-        printf("\nEsteira 1 Entrada - Lido 1: %d", (int)lido);
+        pthread_mutex_lock(&exclusao_mutua);
 
-        peso_total_esteira1 += peso;
-        peso_total_combinado += peso;
         itens_lidos++;
+        esteira1.quantidade++;
+        esteira1.peso_total += peso;
 
-        ReleaseMutex(hMutex); // Liberar o Mutex
-        printf("\nEsteira 1 Saída - Lido 1: %d", (int)lido);
+        pthread_mutex_unlock(&exclusao_mutua);
 
-        Sleep(interval);
+        sleep(interval);
         lido++;
     }
-
-    return 0;
 }
 
-// Função para atualizar o sensor da esteira 2
-DWORD WINAPI atualiza_sensor_esteira2(LPVOID lpParam)
+void atualiza_sensor_esteira2()
 {
     double lido = 0;
     int peso = 2;
-    int interval = 1000; // 1 segundo
-
+    int interval = 1; // 1 segundo
     while (itens_lidos < stop_threshold)
     {
-        WaitForSingleObject(hMutex, INFINITE); // Aguardar o Mutex
-        printf("\nEsteira 2 Entrada - Lido 1: %d", (int)lido);
+        pthread_mutex_lock(&exclusao_mutua);
 
-        peso_total_esteira2 += peso;
-        peso_total_combinado += peso;
         itens_lidos++;
+        esteira2.quantidade++;
+        esteira2.peso_total += peso;
 
-        ReleaseMutex(hMutex); // Liberar o Mutex
-        printf("\nEsteira 2 Saída - Lido 1: %d", (int)lido);
+        pthread_mutex_unlock(&exclusao_mutua);
 
-        Sleep(interval);
+        sleep(interval);
         lido++;
     }
-
-    return 0;
 }
 
-// Função para atualizar o display
-DWORD WINAPI atualiza_display(LPVOID lpParam)
+void atualiza_display()
 {
+    int multiplicador_quantidade = 1;
+    int total_itens_lidos;
+    int peso_total = 0;
+
     while (itens_lidos < stop_threshold)
     {
-        WaitForSingleObject(hMutex, INFINITE); // Aguardar o Mutex
+        pthread_mutex_lock(&exclusao_mutua);
 
-        if (itens_lidos % threshold == 0)
+        total_itens_lidos = esteira1.quantidade + esteira2.quantidade;
+
+        if (total_itens_lidos >= (multiplicador_quantidade * threshold))
         {
-            printf("\n");
-            printf("\nPeso total Esteira 1: %.2lf", peso_total_esteira1);
-            printf("\nPeso total Esteira 2: %.2lf", peso_total_esteira2);
-            printf("\nPeso total combinado: %.2lf", peso_total_combinado);
+            peso_total = esteira1.peso_total + esteira2.peso_total;
+            multiplicador_quantidade++;
             atualizacoes_display++;
         }
 
-        ReleaseMutex(hMutex); // Liberar o Mutex
+        pthread_mutex_unlock(&exclusao_mutua);
 
-        Sleep(1000); // Esperar 1 segundo
+        printf("E1 - Itens: %d | PesoTotal: %d\n", esteira1.quantidade, esteira1.peso_total);
+        printf("E2 - Itens: %d | PesoTotal: %d\n", esteira2.quantidade, esteira2.peso_total);
+        printf("T  - Itens: %d | PesoTotal: %d\n\n", total_itens_lidos, peso_total);
+
+        sleep(1); // Espera 1 segundos
     }
-
-    return 0;
 }
